@@ -1,5 +1,5 @@
 # MSFS Water Recognition
-###Goal of the project
+### Goal of the project
 In Microsoft flight simulator 2020 (MSFS), water is placed on the map if an area is recognize as water area in an online map (I think of Bing maps or OpenStreetMap).  
 However, there areas in the world where zones are poorly treated such as the northern Canada or Africa.  
 This results in the game MSFS as dark areas (since these areas are dark in sattelite imagery, but with no water or even trees in it. You can't land with a seaplane in these areas and they do not reflect light as watered areas.  
