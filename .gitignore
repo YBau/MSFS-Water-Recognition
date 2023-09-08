@@ -1,0 +1,11 @@
+# Input files #
+###############
+*.zip
+
+# Products saved #
+##################
+*.tif
+
+# Documentation #
+#################
+*.pdf
