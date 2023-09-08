@@ -7,7 +7,7 @@ This problem can be solved by editing the world with MSFS tool : SDK. You can ma
 I don't like to treat hundreds of squared kilometers manually, moreover these zones are rarely flought (I imagine that's why there is no modification of these zones in open maps).  
 Here comes this project which automatically recognizes water on satellite images and creates the corresponding SDK scenery file to edit areas.
 
-###Requirements
+### Requirements
 (This is my setup)
 
 * An anaconda installation
@@ -16,7 +16,7 @@ Here comes this project which automatically recognizes water on satellite images
 * the python package snappy [Here is a short video which explains installation](https://www.youtube.com/watch?v=14YM1kKdgA8)
 * the python package gdal in order to read sentinel-2 products (I followed [this tutorial](https://pythongisandstuff.wordpress.com/2016/04/13/installing-gdal-ogr-for-python-on-windows/) for installation)
 
-###How to use the project
+### How to use the project
 
 * Download a sentinel-2 product (Level-2A or 2B) on [ESA copernicus map](https://scihub.copernicus.eu/dhus/#/home), you need to register, it's free. Verify that the image you take is cloudless, especially over the water areas. Put the .zip file in the folder _Original_.
 * Open your Python IDE on the snappy environment. 
@@ -28,14 +28,14 @@ Here comes this project which automatically recognizes water on satellite images
 * Reload the project you just close, open the scenery. If everything is fine, you should see the edition red lines in the area you are checked.
 * Make some editions if you want then build the package.
 
-###Curent problems
+### Curent problems
 
 * Resolution of sattelite images I use is 20 meters, so contours of the water areas (lakes and rivers) cannot be placed exactly where they should be. In its current configuration, water areas are created a bit smaller that what they should. Moreover, there might be not perfectly centered, the tolerable displacement for this project is around 10 meters because a pixel of the satellite images is 10 by 10 meters.
 * I saw a maximal displacement of 30 meters, I don't know yet the reason why.
 * Rivers are not always deep enough to be easily recognize as water. In the current version, the deepest part is set as water but not all the river. So in the "transition zone" it looks like small lakes placed on the river.
 * Some small areas migh be covered by water while there are just trees in these areas (pretty rare)
 
-###How does it works
+### How does it works
 
 1. _main-NDWI_ load read the zip, and computes the normalized difference water index (NDWI) which is the normalized difference between the green and near infrared frequency band.  
 The interseting fact about resulting NDWI is that areas with negative values are land and areas with positive values are water.
@@ -45,7 +45,7 @@ The interseting fact about resulting NDWI is that areas with negative values are
 5. Then elevation (required parameter for SDK) is found for each polygon with opentopodata (this part is the longest).
 6. Finally, the .xml file is written.
 
-###You might be interested in 
+### You might be interested in 
 
 * [Training for SNAP (free)](https://eo4society.esa.int/resources/copernicus-rus-training-materials/)
 
