@@ -1,9 +1,6 @@
-# Input files #
-###############
-*.zip
-
-# Products saved #
+# Products files #
 ##################
+*.zip
 *.tif
 *.hdr
 *.img
@@ -13,3 +10,7 @@
 # Documentation #
 #################
 *.pdf
+
+# Other #
+#########
+__pycache__
