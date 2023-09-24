@@ -1,6 +1,34 @@
 from termcolor import colored
 import numpy as np
 import matplotlib.pyplot as plt
+import requests
+
+# =============================================================================
+# %% General functions
+# =============================================================================
+
+def seconds_to_time(seconds, n_decimals=2) :
+    h = int(seconds//3600)
+    m = int(seconds//60 - h*60)
+    s = seconds - m*60 - h*3600
+    if h > 0 :
+        return f'{h:0>2}:{m:0>2}:{round(s):0>2}'
+    elif m > 0 : return f'{m:0>2}:{round(s):0>2}'
+    else : return '{:.{}f}s'.format(s, n_decimals)
+
+def meters_to_latitude(m) :
+    """
+    Convert a vertical distance on earth into a latitude angle
+    """
+    r_earth = 6371e3
+    # r_earth * arc_rad = m
+    arc_rad = m/r_earth
+    arc_deg = arc_rad * 180/np.pi
+    return arc_deg
+
+# =============================================================================
+# %% For Snappy functions
+# =============================================================================
 
 def read_zip_name(name, display=False):
     # first get rid of path and '.zip'
@@ -42,7 +70,7 @@ def read_zip_name(name, display=False):
                 colored('Processing baseline number : ', 'cyan') + '{}\n'.format(proc_bl) +
                 colored('Relative orbit number : ', 'cyan') + '{}\n'.format(int(rel_orbit[1:])) +
                 colored('Tile number : ', 'cyan') + f'{tile_num}\n' +
-                colored('Product discriminator : ', 'cyan') + '{}/{}/{} at {}:{}:{}\n'.format(d2[6:8], d2[4:6], d2[0:4], d2[9:11], d2[11:13], d2[13:])
+                colored('Ingestion Date : ', 'cyan') + '{}/{}/{} at {}:{}:{}\n'.format(d2[6:8], d2[4:6], d2[0:4], d2[9:11], d2[11:13], d2[13:])
                 )
         return name.split('_')
         
@@ -121,3 +149,214 @@ def output_RGB(product, RGB_band_names):
     ax.imshow(RGB)
     ax.set_title('RGB')
     plt.tight_layout()
+
+def search_online_prod(filename = "*", footprint=[], max_cloudcoverpercentage = 20, username="ybau", password="Copernicus.city7"):
+    """
+    Returns product names corresponding to the search
+    See https://scihub.copernicus.eu/userguide/OpenSearchAPI for more details
+    No ice or snow tolerated on pictures : snowicepercentage == 0
+    
+    Keyword arguments:
+    filename    -- string --> filename of the product, can be written with * and ?.
+    footprint   -- list --> list of points (1, 3 or more) which must be intersected by the images. 0 point means ignoring this parameter
+        example : footprint = [(41.9, 12.5)] 
+        !!! Latitude, Longitude format !!!
+    max_cloudcoverpercentage --float --> maximum tolerable cloud coverage in percent
+
+    """
+    
+    assert (len(footprint) != 2), "more than 2 points are required to create a polygon"
+    if len(footprint) == 0 : footprinturl = "*"
+    elif len(footprint) == 1 : footprinturl = f"{footprint[0][0]},{footprint[0][1]}"
+    else :
+        footprinturl = "POLYGON(("
+        for point in footprint :
+            footprinturl += f"{point[0]} {point[1]},"
+        footprinturl = footprinturl[:-1] + "))" # delete last coma and close parenthesis        
+    
+    def request_productdata(start_index=0, rows=100):
+        url0 = 'https://scihub.copernicus.eu/dhus/search?'
+        url1 = f'start={start_index}&rows={rows}&'
+        url2 = f'q=filename:{filename}'
+        if footprinturl != "*":
+            url3 = f' AND footprint:"intersects({footprinturl})"'
+        else : url3 = ""
+        url4 = "&orderby=beginposition desc"
+        query = (url0 + url1 + url2 + url3 + url4)
+        # print(query)
+        response = requests.get(query, auth=requests.auth.HTTPBasicAuth(username, password))
+        dic = xmltodict.parse(response.text)
+        if 'error' in dic['feed'].keys() :
+            code = dic['feed']['error']['code']
+            mes = dic['feed']['error']['message']
+            print(colored(f'error {code} :', 'red'))
+            print(mes)
+        return dic
+    
+    dic = request_productdata()
+    if 'error' in dic['feed'].keys() : return []
+    
+    selected_products = {}
+    n_prod = int(dic["feed"]["opensearch:totalResults"])
+    if n_prod == 0 : 
+        print("no product found")
+        return []
+    
+    start_index = 0
+    last_index =0
+    while start_index + last_index +1 < n_prod :
+        # print(n_prod, dic.keys(), start_index, last_index)
+        if last_index!= 0:
+            dic = request_productdata(start_index=start_index+last_index+1)
+            if 'error' in dic['feed'].keys() : return []
+        
+        start_index = int(dic["feed"]["opensearch:startIndex"]) # new start_index
+        list_prod = dic["feed"]["entry"]
+        
+        for i in range(len(list_prod)) :
+            name = list_prod[i]["title"]
+            cloudcoverpercentage = -1
+            snowicepercentage = -1
+            double_list = list_prod[i]["double"]
+            for dic2 in double_list :
+                if dic2["@name"] == "mediumprobacloudpercentage" : 
+                    cloudcoverpercentage = float(dic2["#text"])
+                if dic2["@name"] == "snowicepercentage" : 
+                    snowicepercentage = float(dic2["#text"])
+            if snowicepercentage == 0 and cloudcoverpercentage <= max_cloudcoverpercentage :
+                selected_products[name] = list_prod[i]["link"][0]["@href"]
+        last_index = len(list_prod)-1
+    
+    return selected_products
+
+# =============================================================================
+# %% Elevation functions
+# =============================================================================
+    
+def get_elevation_openelevation(lat, lon):
+    """
+    Return elevation from latitude, longitude based on the SRTM mesh, pretty long to respond
+    """
+    assert -60 <= lat <= 60, "SRTM dataset has data only in latitudes between -60° and 60°"
+    query = ('https://api.open-elevation.com/api/v1/lookup'
+             f'?locations={lat},{lon}')
+    # one approach is to use pandas json functionality:
+    # elevation = pd.io.json.json_normalize(r, 'results')['elevation'].values[0]
+    loop = True
+    while loop :
+        try : # sometime the request fails, so restart
+            r = requests.get(query).json()  # json object, various ways you can extract value
+            loop = False
+        except : loop = True
+    elevation = pd.json_normalize(r, 'results')['elevation'].values[0]
+    return elevation
+
+def get_elevation_opentopodata(lat, lon, source = 'mapzen'):
+    query = (f'https://api.opentopodata.org/v1/{source}'
+              f'?locations={lat},{lon}')
+    # one approach is to use pandas json functionality:
+    # elevation = pd.io.json.json_normalize(r, 'results')['elevation'].values[0]
+    loop = True
+    while loop :
+        try : # sometime the request fails, so restart
+            r = requests.get(query).json()  # json object, various ways you can extract value
+            if r['status'] != 'OK' : 
+                if 'error' in r.keys() :
+                    print(r['error'])
+                else :
+                    print(r)
+            loop = False
+        except : loop = True
+    elevation = pd.json_normalize(r, 'results')['elevation'].values[0]
+    return elevation
+
+def get_multiple_elevation_opentopodata(lat_lon_array, source = 'mapzen'):
+    """ 
+    Entry : lat_lon_array, an array of shape (n, 2) where n is the number of coordinates
+            and coordinates are presented in the order lat, lon in the decimal format
+    Output : an array of shape (n,) with all altitudes at the given points.
+    """
+    # maximum query must be 100 points long
+    n = len(lat_lon_array)
+    elevations = np.zeros(n,)
+    i0 = i = 0
+    t0 = time.time()
+    t_wait = 1 # time to wait between requests
+    while i0 < n :
+        query = f'https://api.opentopodata.org/v1/{source}?locations='
+        i=0
+        while i < 100 and i0 + i < n :
+            lat, lon = lat_lon_array[i0+i]
+            query += f'{lat},{lon}|'
+            i+=1
+        query = query[:-1] # remove last bar
+        if time.time()-t0 <t_wait :
+            time.sleep(t_wait - (time.time()-t0))
+        t0 = time.time()
+        r = requests.get(query).json()
+        if 'error' in r.keys() :
+            print(r['error'])
+        elevations[i0:i0+i] = pd.json_normalize(r, 'results')['elevation']
+        i0+=i
+        
+    return elevations
+
+# =============================================================================
+# %% XML writing functions
+# =============================================================================
+
+def lines_water_polygon(segment, group_index = 1, water_type=1, altitude=200, name = "Water Polygon"):
+    """
+    segment : the np array with all vertices coordinates
+    group_index : the number to increment
+    water_type : 0=River; 1=Water; 4=Lake
+    altitude : the elevation of the water area
+    name : the name of the water which will be visible on SDK
+    """
+    lines = []
+    # open polygon environment
+    lines.append(f'\t<Polygon displayName="{name}" groupIndex="{group_index}" altitude="{altitude}">\n')
+    # then attributes :
+    lines.append('\t\t<Attribute name="UniqueGUID" guid="{359C73E8-06BE-4FB2-ABCB-EC942F7761D0}" type="GUID" value="{' + str(uuid.uuid4()) + '}"/>\n')
+    lines.append('\t\t<Attribute name="IsWater" guid="{684AFC09-9B38-4431-8D76-E825F54A4DFF}" type="UINT8" value="1"/>\n')
+    lines.append('\t\t<Attribute name="WaterType" guid="{3F8514F8-FAA8-4B94-AB7F-DC2078A4B888}" type="UINT32" value="' + str(water_type) + '"/>\n')
+    if not (segment[-1] - segment[0]).any() : # the last vertex is the same as the first
+        n = len(segment)-1
+    else :
+        n = len(segment)
+    # all vertices
+    for i in range(n) :
+        lon, lat = segment[i]
+        lines.append(f'\t\t<Vertex lat="{lat}" lon="{lon}"/>\n')
+    # close the polygon environment
+    lines.append('\t</Polygon>\n')
+    return lines
+
+def lines_exclude_water_polygon(segment, group_index = 1, water_type=1, altitude=200, name = "Exclusion Polygon"):
+    """
+    segment : the np array with all vertices coordinates
+    group_index : the number to increment
+    water_type : 0=River; 1=Water; 4=Lake
+    altitude : the elevation of the water area
+    name : the name of the water which will be visible on SDK
+    """
+    lines = []
+    # open polygon environment
+    lines.append(f'\t<Polygon displayName="{name}" groupIndex="{group_index}" altitude="{altitude}">\n')
+    # then attributes :
+    lines.append('\t\t<Attribute name="UniqueGUID" guid="{359C73E8-06BE-4FB2-ABCB-EC942F7761D0}" type="GUID" value="{' + str(uuid.uuid4()) + '}"/>\n')
+    lines.append('\t\t<Attribute name="IsWater" guid="{684AFC09-9B38-4431-8D76-E825F54A4DFF}" type="UINT8" value="1"/>\n')
+    lines.append('\t\t<Attribute name="IsWaterExclusion" guid="{972B7BAC-F620-4D6E-9724-E70BF8A450DD}" type="UINT8" value="1"/>\n')
+    lines.append('\t\t<Attribute name="WaterType" guid="{3F8514F8-FAA8-4B94-AB7F-DC2078A4B888}" type="UINT32" value="' + str(water_type) + '"/>\n')
+    if not (segment[-1] - segment[0]).any() : # the last vertex is the same as the first
+        n = len(segment)-1
+    else :
+        n = len(segment)
+    # all vertices
+    for i in range(n) :
+        lon, lat = segment[i]
+        lines.append(f'\t\t<Vertex lat="{lat}" lon="{lon}"/>\n')
+    # close the polygon environment
+    lines.append('\t</Polygon>\n')
+    # and write all of this
+    return lines

@@ -35,18 +35,22 @@ pd.options.display.max_colwidth = 80    # Longer text in pd.df
 
 # Set target folder and extract metadata
 product_path = "Original/"
-input_S2_files = sorted(list(iglob(join(product_path, '**', '*S2*.zip'), recursive=True)))
+input_S2_files = sorted(list(iglob(join(product_path, '*S2*_T*.zip'), recursive=True)))
 
+selected_tile = "T14UPC"
+
+Read_Products = [] # all of the products read cover the same tile
 for i in input_S2_files:
-    read_zip_name(i,display = True)
-    # Read with snappy
-    s2_read = snappy.ProductIO.readProduct(i)
+    tile = read_zip_name(i,display = True)[5]
+    if tile == selected_tile :
+        Read_Products.append(snappy.ProductIO.readProduct(i))
 
-# output_RGB(s2_read, ['B2', 'B3', 'B4'])
-# output_view(s2_read, list(s2_read.getBandNames())[:4])
+n_prod = len(Read_Products)
 
-print(colored('Products read', 'green'))
+print(colored('Products read :', 'green'), n_prod, colored(f'product{"s" if n_prod > 1 else ""} selected, tile', "green"), selected_tile)
 
+assert n_prod > 0, f"No product match tile {selected_tile}"
+    
 
 # =============================================================================
 # %% Resample Product
@@ -55,9 +59,12 @@ print(colored('Products read', 'green'))
 
 parameters = snappy.HashMap()
 parameters.put('referenceBand', 'B2')
-resampled = snappy.GPF.createProduct('Resample', parameters, s2_read)
-print(colored('Resampling done', 'green'))
 
+Resampled_Products = []
+for product in Read_Products :
+    Resampled_Products.append(snappy.GPF.createProduct('Resample', parameters, product))
+    
+print(colored('Products Resampled', 'green'))
 
 # =============================================================================
 # %% NDWI (Normalized difference water index)
@@ -68,33 +75,153 @@ targetBand1 = BandDescriptor()
 targetBand1.name = 'NDWI'
 targetBand1.type = 'float32'
 targetBand1.expression = 'if (B3<=0 and B8<=0) then 1 else (max(0,B3) - max(0,B8))/(max(0,B3) + max(0,B8))' # there can't be negative values in original bands
-targetBands = jpy.array('org.esa.snap.core.gpf.common.BandMathsOp$BandDescriptor', 2)
-targetBands[0] = targetBand1
 
-targetBand2 = BandDescriptor()
-targetBand2.name = 'SWIR_based_NDWI'
-targetBand2.type = 'float32'
-targetBand2.expression = 'if (B3<=0 and B11<=0) then 1 else (max(0,B3) - max(0,B11))/(max(0,B3) + max(0,B11))' # there can't be negative values in original bands
-targetBands[1] = targetBand2
+targetBands = jpy.array('org.esa.snap.core.gpf.common.BandMathsOp$BandDescriptor', 1)
+targetBands[0] = targetBand1
 
 parameters = snappy.HashMap()
 parameters.put('targetBands', targetBands)
-new_bands = snappy.GPF.createProduct('BandMaths', parameters, resampled)
 
-print(colored('NDWI band created', 'green'))
+NDWI_Products = []
+for i, product in enumerate(Resampled_Products) :
+    print(colored(f'\tCreating NDWI band for product {i}...', 'green'))
+    NDWI_Products.append(snappy.GPF.createProduct('BandMaths', parameters, product))
 
-output_view(new_bands, ['NDWI','SWIR_based_NDWI'])
+print(colored('NDWI bands created', 'green'))
+
+# output_view(new_bands, ['NDWI','SWIR_based_NDWI'])
+
+# =============================================================================
+# %% Clouds handling
+# =============================================================================
+
+NDWI_Arrays = []
+Cloud_Masks = []
+Classification_Masks = []
+max_tolerable_cloud_proba_percent = 5
+
+for i in range(n_prod) :
+    print(colored(f'\tExtracting data from product {i}...', 'green'))
+    band_ndwi = NDWI_Products[i].getBand("NDWI")
+    band_clouds = Resampled_Products[i].getBand("quality_cloud_confidence")
+    band_classification = Resampled_Products[i].getBand("quality_scene_classification")
+    w = band_ndwi.getRasterWidth()
+    h = band_ndwi.getRasterHeight()
+    NDWI_data = np.zeros(w * h, np.float32)
+    Cloud_data = np.zeros(w * h, np.float32)
+    Classification_data = np.zeros(w * h, np.float32)
+    band_ndwi.readPixels(0, 0, w, h, NDWI_data)
+    band_clouds.readPixels(0, 0, w, h, Cloud_data)
+    band_classification.readPixels(0, 0, w, h, Classification_data)
+    NDWI_data.shape = h, w
+    Cloud_data.shape = h, w
+    Classification_data.shape = h, w
+    NDWI_Arrays.append(NDWI_data)
+    Cloud_mask = (Cloud_data > max_tolerable_cloud_proba_percent)*1
+    Cloud_Masks.append(Cloud_mask)
+    Classification_mask = (Classification_data==0)*1
+    Classification_Masks.append(Classification_mask)
+
+print(colored('NDWI, cloud and classification arrays extracted', 'green'))
+
+Hidden_zone = Cloud_Masks[0] + Classification_Masks[0]
+for i in range(1, n_prod) :
+    Hidden_zone *= (Cloud_Masks[i] + Classification_Masks[i])
+
+print(colored('Remaining clouds and unknown pixels :', 'green'), f"{np.sum(Hidden_zone)}/{w*h}")
+
+NDWI_sum = NDWI_Arrays[0]*0
+Cloud_sum = NDWI_Arrays[0]*0
+for i in range(n_prod) :
+    NDWI_sum += NDWI_Arrays[i] * (1-Cloud_Masks[i]-Classification_Masks[i])
+    Cloud_sum += (1-Cloud_Masks[i]-Classification_Masks[i])
+NDWI_combined = np.divide(NDWI_sum, Cloud_sum, out = np.zeros(Cloud_sum.shape, dtype=float)+2, where=Cloud_sum!=0)
+
+print(colored('NDWI arrays combined', 'green'))
+
+# now there are 2 where there are only clouds, so we will use the pixels arounds to guess the value of NDWI (2 is an impossible value of NDWI)
+
+Coordinates_remaining_clouds = np.transpose(np.where(Cloud_sum==0))
+NDWI_not_set=list(range(len(Coordinates_remaining_clouds)))
+
+x_neighbours = [0,+1,0,-1]
+y_neighbours = [+1,0,-1,0]
+min_neighbours = 2
+i1 = i2 = 0
+len0=len(NDWI_not_set)
+while len(NDWI_not_set)>0 :
+    if i1 == len(NDWI_not_set) : 
+        i1=0 # reset loop
+        if len0 == len1 : # we check all pixels not set but we change none : we make conditions more flexible
+            min_neighbours=1
+        len0 = len1
+        
+    i2 = NDWI_not_set[i1]
+    x,y = Coordinates_remaining_clouds[i2]
+    num = div = 0
+    for j in range(4):
+        xn, yn = x+x_neighbours[j], y+y_neighbours[j]
+        if 0 <= xn < w and 0 <= yn < h and NDWI_combined[xn, yn] != 2 :
+            num += NDWI_combined[xn, yn]
+            div += 1
+    if div >= min_neighbours : 
+        NDWI_combined[x,y] = num/div
+        NDWI_not_set.pop(i1)
+    else : 
+        i1+=1
+    len1 = len(NDWI_not_set)
+    
+print(colored('Combined array completed, remaining hidden pixels :', 'green'), np.sum(NDWI_combined==2))
+
+# =============================================================================
+# %% Plot bands
+# =============================================================================
+
+# band = Read_Products[3].getBand("quality_scene_classification")
+# W = band.getRasterWidth()
+# H = band.getRasterHeight()
+# data = np.zeros(W * H, np.float32)
+# band.readPixels(0, 0, W, H, data)
+# data.shape = H, W
+
+# fig, ax = plt.subplots(1,2, figsize = (18,9))
+# ax[0].imshow(data == 6)
+# ax[1].imshow(NDWI_combined)
+# plt.show()
+
+if np.sum(Hidden_zone) > 500 :
+    fig, ax = plt.subplots(1,2, figsize = (18,9))
+    ax[0].imshow(Cloud_sum==0)
+    ax[1].imshow(NDWI_combined)
+    ax[0].set_title(f"{selected_tile} Cloud_sum==0")
+    ax[1].set_title(f"{selected_tile} NDWI")
+    plt.show()
 
 # =============================================================================
 # %% Write output 
 # =============================================================================
 
-# Once we have completed all preprocessing steps we can write our SAR product to file. 
-# In this occasion we will chooose the GeoTIFF format.
+# we write the array as a product since we need to keep coordinates
 
-# Set output path and name
-outpath_name = 'NDWI/NDWI_set.tif'
+NDWI_line = np.zeros(w * h, np.float32)
+for i in range(h):
+    NDWI_line[i*w: (i+1)*w] = NDWI_combined[i]
 
-# Write Operator - snappy
-# snappy.ProductIO.writeProduct(new_bands, outpath_name, 'GeoTIFF')
-# print(colored('Product succesfully saved in:', 'green'), outpath_name)
+outpath_name = 'NDWI/{}.dim'.format(selected_tile)
+
+targetP = snappy.Product('new_product', 'new_type', w, h)
+snappy.ProductUtils.copyMetadata(NDWI_Products[0], targetP)
+snappy.ProductUtils.copyTiePointGrids(NDWI_Products[0], targetP)
+snappy.ProductUtils.copyGeoCoding(NDWI_Products[0], targetP)
+targetP.setProductWriter(snappy.ProductIO.getProductWriter('BEAM-DIMAP'))
+targetP.setProductReader(snappy.ProductIO.getProductReader('BEAM-DIMAP'))
+snappy.ProductIO.writeProduct(targetP, outpath_name, 'BEAM-DIMAP')
+
+targetB = targetP.addBand('NDWI_combined', snappy.ProductData.TYPE_FLOAT32)
+targetB.setUnit('1')
+targetP.writeHeader(outpath_name)
+targetB.writePixels(0,0,w,h,NDWI_line)
+
+targetP.closeIO()
+
+print(colored('Product succesfully saved in:', 'green'), outpath_name)

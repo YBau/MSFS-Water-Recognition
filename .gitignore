@@ -5,6 +5,10 @@
 # Products saved #
 ##################
 *.tif
+*.hdr
+*.img
+*.data
+*.dim
 
 # Documentation #
 #################
