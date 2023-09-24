@@ -14,3 +14,4 @@
 # Other #
 #########
 __pycache__
+*.pyc
