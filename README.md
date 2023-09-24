@@ -1,4 +1,5 @@
 # MSFS Water Recognition
+
 ### Goal of the project
 In Microsoft flight simulator 2020 (MSFS), water is placed on the map if an area is recognize as a water area in an online map (I think of Bing maps or OpenStreetMap).  
 However, there are zones in the world where water areas are poorly treated such as the northern Canada or central Africa.  
@@ -18,12 +19,12 @@ Here comes this project which automatically recognizes water on satellite images
 
 ### How to use the project
 
-* Download a sentinel-2 product (Level-2A or 2B) on [ESA copernicus map](https://scihub.copernicus.eu/dhus/#/home), you need to register, it's free. Verify that the image you take is cloudless, especially over the water areas. Put the .zip file in the folder _Original_.
+* Download a sentinel-2 product (Level-2A or 2B) on [ESA copernicus map](https://scihub.copernicus.eu/dhus/#/home), you need to register, it's free. If the satellite image is not cloudless, take other one covering the same tile, cloudless where there are clouds on the first one. The tile do not need to be totally covered by the photography. Put the .zip files in the folder _Original_.
 * Open your Python IDE in the snappy environment. 
 * Edit main-NDWI with your configuration (change folder locations, file names).
-* Run main-NDWI, it will create a .tif file in the _NDWI_ folder. It takes less than 5 minutes on my computer.
+* Run main-NDWI, it will create a .dim file in the _NDWI_ folder. The computation time is correlated with the number of images for the selected tile. It takes less than 5 minutes on my computer, but it takes a lot of memory.
 * Edit main-Polygons with your configuration.
-* Run it, it will create a .xml file in the _Output_ folder. It takes less than 10 minutes on my computer.
+* Run it, it will create a .xml file in the _Output_ folder. The computation time is correlated with the number of lakes and islands. It takes less than 10 minutes on my computer.
 * Then create a MSFS SDK project, close it and put the .xml file in the PackageSources folder. Modify PackageDefinition folder in consequence.
 * Reload the project you just closed, open the scenery. If everything is fine, you should see the edition red lines in the area you choose for modification.
 * Make some editions if you want, save, then build the package.
@@ -34,17 +35,21 @@ Here comes this project which automatically recognizes water on satellite images
 * I saw a maximal displacement of 30 meters, I don't know yet the reason why.
 * Rivers are not always deep enough to be easily recognized as water. In the current version, the deepest part is set as water but not all the river. So in the "transition zone" it looks like small lakes placed on the river.
 * Some small areas migh be covered by water while there are just trees in these areas (pretty rare)
+* Some artificial areas (roofs, airport runways) might be covered by water. I need to change the method from NDWI to another to avoid this.
 * Areas are treated tile by tile (100km x 100km). The next step for development is a way to merge .xml files and then choose and download automatically satellite images in the area you choose.
 
 ### How does it works
 
-1. _main-NDWI_ reads the .zip file, and computes the normalized difference water index (NDWI) which is the normalized difference between the green and near infrared frequency bands.  
+1. _main-NDWI_ reads all the .zip file, and computes the normalized difference water index (NDWI) which is the normalized difference between the green and near infrared frequency bands.  
 The interseting fact about resulting NDWI is that areas with negative values are land and areas with positive values are water.
-2. The NDWI band created is stored as a .tif file.
-3. _main-Polygons_ loads the NDWI band, it detects from the NDWI band (which is just a black and white picture in an array) all the isolines equals to 0 (it's fast and precise with the contour() method of plt). The result is a list of polygons.
-4. Then polygons are defined as water polygons or exclude water polygons, indeed, a polygon can delimit a lake, an island, an lake in an island...
-5. Then elevation (required parameter for SDK) is downloaded for each polygon with opentopodata (this part is the longest).
-6. Finally, the .xml file is written.
+This water index is computed for each file of the same tile.
+2. A cloud mask is created with the already computed "cloud index" in the data of the zip files. It includes the fact that images might not cover the entire tile.
+3. Files are combined using an average and the cloud mask.
+4. The NDWI band created is stored as a .dim file.
+5. _main-Polygons_ loads the NDWI band, it detects from the NDWI band (which is just a black and white picture in an array) all the isolines equals to 0 (it's fast and precise with the contour() method of plt). The result is a list of polygons.
+6. Then polygons are defined as water polygons or exclude water polygons, indeed, a polygon can delimit a lake, an island, an lake in an island...
+7. Then elevation (required parameter for SDK) is downloaded for each polygon with opentopodata (this part is the longest).
+8. Finally, the .xml file is written.
 
 ### You might be interested in 
 
