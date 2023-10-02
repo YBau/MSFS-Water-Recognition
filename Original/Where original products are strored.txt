@@ -1,3 +1,5 @@
+ (platformname:Sentinel-2 AND producttype:S2MSI2A AND cloudcoverpercentage:[0 TO 50] AND filename:*T14UQB*)
+
 Minaki - Lac du Bonnet : OK
 
 - Bisset
@@ -16,65 +18,65 @@ T14UPD +
 - Norway House
 T14UPD +
 T14UPE +
-T14UND (need less cloudy images)
-T14UNE 
-T14UNF
+T14UND +
+T14UNE +
+T14UNF +
 
 - Cross Lake
-T14UNE 
-T14UNF
+T14UNE +
+T14UNF +
 
 - Ilford
-T14UNF
-T14UNG
-T14UPF
-T14UPG
-T14VPH
-T15UUB
-T15VUC
+T14UNF +
+T14UNG +
+T14UPF +
+T14UPG +
+T14VPH +
+T15UUB +
+T15VUC +
 
 - Knee Lake
-T15UUB
-T15VUC
+T15UUB +
+T15VUC +
 
 - Gods Lake
-T15UUB
-T15UVA
-T15UVB (need more)
-T15UUA
+T15UUB +
+T15UVA +
+T15UVB +
+T15UUA +
 
 - Sachigo Lake
-T15UVA
-T15UVV
-T15UWA
-T15UWV
+T15UVA +
+T15UVV +
+T15UWA +
+T15UWV +
 
 
 - Big Trout Lake
-T15UWV
-T16UCE
-T15UXV
+T15UWV +
+T16UCE +
+T15UXV +
 
 - Weagamow
-T15UXV
-T15UWU
-T15UXU
+T15UXV +
+T15UWU +
+T15UXU +
 
 - Pikle Lake
-T15UXU
-T15UXT (need more)
-T15UYT
-T15UXS
-T15UWU
+T15UXU +
+T15UXT +
+T15UYT +
+T15UXS +
+T15UWU +
 
 - Cat Lake
-T15UXT
-T15UWT
+T15UXT +
+T15UWT +
 
 - Ear falls
-T15UVS
-T15UWS
-T15UWT
+T15UVS +
+T15UWS +
+T15UWT +
 
 - Wild Eye : OK
 

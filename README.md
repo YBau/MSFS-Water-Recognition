@@ -35,7 +35,6 @@ Here comes this project which automatically recognizes water on satellite images
 * I saw a maximal displacement of 30 meters, I don't know yet the reason why.
 * Rivers are not always deep enough to be easily recognized as water. In the current version, the deepest part is set as water but not all the river. So in the "transition zone" it looks like small lakes placed on the river.
 * Some small areas migh be covered by water while there are just trees in these areas (pretty rare)
-* Some artificial areas (roofs, airport runways) might be covered by water. I need to change the method from NDWI to another to avoid this.
 * Areas are treated tile by tile (100km x 100km). The next step for development is a way to merge .xml files and then choose and download automatically satellite images in the area you choose.
 
 ### How does it works
@@ -54,5 +53,6 @@ This water index is computed for each file of the same tile.
 ### You might be interested in 
 
 * [Training for SNAP (free)](https://eo4society.esa.int/resources/copernicus-rus-training-materials/)
+* [A bibliography review about use of water indices (free)](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2018RG000598). You might notice I choose to use NDWI instead of mNDWI. It's due to the fact that even if mNDWI is better to detect water, the short-wave infrared band (band 11) has not a good resolution. So the advantage of mNDWI over NDWI is lost due to a poor resolution.
 
 If you want to help me to develop the project, you can contact me by mail or private message (in english or french).

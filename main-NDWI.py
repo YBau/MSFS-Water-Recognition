@@ -14,7 +14,7 @@ import jpy                              # Python-Java bridge
 from PIL import Image, ImageOps
 
 import sys
-from functions import read_zip_name, output_view, output_RGB
+from functions import read_zip_name, output_view, output_RGB, land_water_cmap
 
 # Change module setting
 pd.options.display.max_colwidth = 80    # Longer text in pd.df
@@ -26,23 +26,20 @@ pd.options.display.max_colwidth = 80    # Longer text in pd.df
 # print(subprocess.Popen(['gpt','-h', 'Speckle-Filter'], stdout=subprocess.PIPE, universal_newlines=True).communicate()[0])
 
 # =============================================================================
-# %% Plot preview
+# %% Load products
 # =============================================================================
-
-# We start the analysis by setting the folder where the files we want to processed are located.
-# Next, one of the files wil be used as input for this exercise and will be imported with `snappy`.
-# In addition, a quicklook availalbe in the original data folder is displayed.
 
 # Set target folder and extract metadata
 product_path = "Original/"
-input_S2_files = sorted(list(iglob(join(product_path, '*S2*_T*.zip'), recursive=True)))
+input_S2_files = sorted(list(iglob(join(product_path, 'S2*_T*.zip'), recursive=True)))
 
-selected_tile = "T14UPC"
+selected_tile = "T14UPF"
 
 Read_Products = [] # all of the products read cover the same tile
 for i in input_S2_files:
-    tile = read_zip_name(i,display = True)[5]
+    tile = read_zip_name(i)[5]
     if tile == selected_tile :
+        read_zip_name(i, display = True)
         Read_Products.append(snappy.ProductIO.readProduct(i))
 
 n_prod = len(Read_Products)
@@ -76,8 +73,15 @@ targetBand1.name = 'NDWI'
 targetBand1.type = 'float32'
 targetBand1.expression = 'if (B3<=0 and B8<=0) then 1 else (max(0,B3) - max(0,B8))/(max(0,B3) + max(0,B8))' # there can't be negative values in original bands
 
+# mNDWI is said to be better than NDWI, however bands imply in its calculation are less precise
+# targetBand2 = BandDescriptor()
+# targetBand2.name = 'mNDWI'
+# targetBand2.type = 'float32'
+# targetBand2.expression = 'if (B3<=0 and B11<=0) then 1 else (max(0,B3) - max(0,B11))/(max(0,B3) + max(0,B11))' # there can't be negative values in original bands
+
 targetBands = jpy.array('org.esa.snap.core.gpf.common.BandMathsOp$BandDescriptor', 1)
 targetBands[0] = targetBand1
+# targetBands[1] = targetBand2
 
 parameters = snappy.HashMap()
 parameters.put('targetBands', targetBands)
@@ -96,9 +100,10 @@ print(colored('NDWI bands created', 'green'))
 # =============================================================================
 
 NDWI_Arrays = []
+Cloud_Data = []
 Cloud_Masks = []
-Classification_Masks = []
-max_tolerable_cloud_proba_percent = 5
+Known_Masks = []
+max_tolerable_cloud_proba_percent = 20
 
 for i in range(n_prod) :
     print(colored(f'\tExtracting data from product {i}...', 'green'))
@@ -117,61 +122,70 @@ for i in range(n_prod) :
     Cloud_data.shape = h, w
     Classification_data.shape = h, w
     NDWI_Arrays.append(NDWI_data)
-    Cloud_mask = (Cloud_data > max_tolerable_cloud_proba_percent)*1
+    Cloud_Data.append(Cloud_data)
+    Cloud_mask = (Cloud_data > max_tolerable_cloud_proba_percent)*1 # =1 where there are too much clouds, 0 otherwise
     Cloud_Masks.append(Cloud_mask)
-    Classification_mask = (Classification_data==0)*1
-    Classification_Masks.append(Classification_mask)
+    Known_mask = (Classification_data!=0)*1 # =1 when there is data; =0 when there isn't
+    Known_Masks.append(Known_mask)
+
+Classified0_area = Known_Masks[0]
+for i in range(1, n_prod) :
+    Classified0_area = np.logical_or(Classified0_area, Known_Masks[i])
+unknown_area = np.sum(1-Classified0_area)
+if unknown_area > 0 :
+    print(colored('Warning :', 'red'), f'{unknown_area} pixels still uncovered')
 
 print(colored('NDWI, cloud and classification arrays extracted', 'green'))
 
-Hidden_zone = Cloud_Masks[0] + Classification_Masks[0]
+Hidden_zone = Cloud_Masks[0] + np.logical_not(Known_Masks[0])*1 # 1 where the pixel is always covered by clouds or not covered at all by photography
 for i in range(1, n_prod) :
-    Hidden_zone *= (Cloud_Masks[i] + Classification_Masks[i])
+    Hidden_zone *= (Cloud_Masks[i] + np.logical_not(Known_Masks[i]))
 
 print(colored('Remaining clouds and unknown pixels :', 'green'), f"{np.sum(Hidden_zone)}/{w*h}")
 
 NDWI_sum = NDWI_Arrays[0]*0
 Cloud_sum = NDWI_Arrays[0]*0
 for i in range(n_prod) :
-    NDWI_sum += NDWI_Arrays[i] * (1-Cloud_Masks[i]-Classification_Masks[i])
-    Cloud_sum += (1-Cloud_Masks[i]-Classification_Masks[i])
+    Weight_matrix = (1-np.minimum(Cloud_Data[i]/max_tolerable_cloud_proba_percent, 1))
+    NDWI_sum += NDWI_Arrays[i] * Known_Masks[i] * Weight_matrix
+    Cloud_sum += Known_Masks[i] * Weight_matrix
 NDWI_combined = np.divide(NDWI_sum, Cloud_sum, out = np.zeros(Cloud_sum.shape, dtype=float)+2, where=Cloud_sum!=0)
 
 print(colored('NDWI arrays combined', 'green'))
 
 # now there are 2 where there are only clouds, so we will use the pixels arounds to guess the value of NDWI (2 is an impossible value of NDWI)
-
-Coordinates_remaining_clouds = np.transpose(np.where(Cloud_sum==0))
-NDWI_not_set=list(range(len(Coordinates_remaining_clouds)))
-
-x_neighbours = [0,+1,0,-1]
-y_neighbours = [+1,0,-1,0]
-min_neighbours = 2
-i1 = i2 = 0
-len0=len(NDWI_not_set)
-while len(NDWI_not_set)>0 :
-    if i1 == len(NDWI_not_set) : 
-        i1=0 # reset loop
-        if len0 == len1 : # we check all pixels not set but we change none : we make conditions more flexible
-            min_neighbours=1
-        len0 = len1
-        
-    i2 = NDWI_not_set[i1]
-    x,y = Coordinates_remaining_clouds[i2]
-    num = div = 0
-    for j in range(4):
-        xn, yn = x+x_neighbours[j], y+y_neighbours[j]
-        if 0 <= xn < w and 0 <= yn < h and NDWI_combined[xn, yn] != 2 :
-            num += NDWI_combined[xn, yn]
-            div += 1
-    if div >= min_neighbours : 
-        NDWI_combined[x,y] = num/div
-        NDWI_not_set.pop(i1)
-    else : 
-        i1+=1
-    len1 = len(NDWI_not_set)
+if np.sum(Hidden_zone)/(w*h) < 0.01 :
+    Coordinates_remaining_clouds = np.transpose(np.where(Cloud_sum==0))
+    NDWI_not_set=list(range(len(Coordinates_remaining_clouds)))
     
-print(colored('Combined array completed, remaining hidden pixels :', 'green'), np.sum(NDWI_combined==2))
+    x_neighbours = [0,+1,0,-1]
+    y_neighbours = [+1,0,-1,0]
+    min_neighbours = 2
+    i1 = i2 = 0
+    len0=len(NDWI_not_set)
+    while len(NDWI_not_set)>0 :
+        if i1 == len(NDWI_not_set) : 
+            i1=0 # reset loop
+            if len0 == len1 : # we check all pixels not set but we change none : we make conditions more flexible
+                min_neighbours=1
+            len0 = len1
+            
+        i2 = NDWI_not_set[i1]
+        x,y = Coordinates_remaining_clouds[i2]
+        num = div = 0
+        for j in range(4):
+            xn, yn = x+x_neighbours[j], y+y_neighbours[j]
+            if 0 <= xn < w and 0 <= yn < h and NDWI_combined[xn, yn] != 2 :
+                num += NDWI_combined[xn, yn]
+                div += 1
+        if div >= min_neighbours : 
+            NDWI_combined[x,y] = num/div
+            NDWI_not_set.pop(i1)
+        else : 
+            i1+=1
+        len1 = len(NDWI_not_set)
+        
+    print(colored('Combined array completed, remaining hidden pixels :', 'green'), np.sum(NDWI_combined==2))
 
 # =============================================================================
 # %% Plot bands
@@ -189,13 +203,16 @@ print(colored('Combined array completed, remaining hidden pixels :', 'green'), n
 # ax[1].imshow(NDWI_combined)
 # plt.show()
 
-if np.sum(Hidden_zone) > 500 :
+if np.sum(Hidden_zone) > 0 :
     fig, ax = plt.subplots(1,2, figsize = (18,9))
     ax[0].imshow(Cloud_sum==0)
-    ax[1].imshow(NDWI_combined)
+    im = ax[1].imshow(NDWI_combined, cmap = land_water_cmap(0), vmin=-1)
+    fig.colorbar(ax = ax[1], mappable = im, shrink=0.6)
     ax[0].set_title(f"{selected_tile} Cloud_sum==0")
     ax[1].set_title(f"{selected_tile} NDWI")
     plt.show()
+
+assert np.sum(Hidden_zone)/(w*h) < 0.01, "too much unknown areas"
 
 # =============================================================================
 # %% Write output 

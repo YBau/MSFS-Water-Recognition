@@ -1,7 +1,5 @@
 import gdal
 import matplotlib.pyplot as plt         # create visualizations
-from matplotlib import cm
-from matplotlib.colors import ListedColormap
 from termcolor import colored           # prints colored text
 from zipfile import ZipFile             # zip file manipulation
 from os.path import join                # data access in file manager  
@@ -19,7 +17,7 @@ import uuid
 
 
 import sys
-from functions import read_zip_name, seconds_to_time, get_multiple_elevation_opentopodata
+from functions import read_zip_name, seconds_to_time, land_water_cmap, get_multiple_elevation_opentopodata
 from functions import lines_exclude_water_polygon, lines_water_polygon
 
 # Change module setting
@@ -60,13 +58,6 @@ print(colored(f'Products read : {seconds_to_time(time.time()-t0)}', 'green'))
 # %% Create contours via plt
 # =============================================================================
 
-## create new color map
-Blues = cm.get_cmap('Blues', 256)
-Greens = cm.get_cmap('Greens', 256)
-newcolors = Blues(np.linspace(0, 1, 256))
-new_greens = Greens(np.linspace(0, 1, 256))
-
-
 t0 = time.time()
 
 NDWI_band = 'NDWI_combined'
@@ -100,14 +91,10 @@ for i in range(len(x_mesh)) : # for each line i
 for j in range(len(x_mesh[0])) : # for each column j
     y_mesh[:,j] = y_top[j] + (y_bottom[j] - y_top[j])*np.arange(h)/(h-1)
 
-lim = int(256 + 256*(lvl[0]-1)/2)
-newcolors[:lim, :] = np.flip(new_greens[256-lim:256, :], axis = 0)
-newcmp = ListedColormap(newcolors)
-
 cset = ax[0].contour(x_mesh, y_mesh, NDWI_data, levels = lvl)
 # in geography positives are toward the north
 ax[0].set_title(f"{selected_tile} contours, threshold = {lvl[0]}")
-im = ax[1].imshow(NDWI_data, cmap = newcmp)
+im = ax[1].imshow(NDWI_data, cmap = land_water_cmap(lvl[0]))
 fig.colorbar(ax = ax[1], mappable = im, shrink=0.6)
 ax[1].set_title(f"{selected_tile} NDWI")
 # plt.tight_layout()

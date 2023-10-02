@@ -1,6 +1,8 @@
 from termcolor import colored
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import ListedColormap
 import requests
 
 # =============================================================================
@@ -25,6 +27,20 @@ def meters_to_latitude(m) :
     arc_rad = m/r_earth
     arc_deg = arc_rad * 180/np.pi
     return arc_deg
+
+def land_water_cmap(threshold=0) :
+    """
+    Create a blue/green colormap of 256 values with a clear limit between green and blues.
+    This limit is located at threshold for values going from -1 to 1.
+    """
+    Blues = cm.get_cmap('Blues', 256)
+    Greens = cm.get_cmap('Greens', 256)
+    newcolors = Blues(np.linspace(0, 1, 256))
+    new_greens = Greens(np.linspace(0, 1, 256))
+    lim = int(256 + 256*(threshold-1)/2)
+    newcolors[:lim, :] = np.flip(new_greens[256-lim:256, :], axis = 0)
+    newcmp = ListedColormap(newcolors)
+    return newcmp
 
 # =============================================================================
 # %% For Snappy functions
