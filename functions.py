@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import ListedColormap
 import requests
+import time
+import pandas as pd
+import uuid
+
 
 # =============================================================================
 # %% General functions
@@ -321,11 +325,11 @@ def get_multiple_elevation_opentopodata(lat_lon_array, source = 'mapzen'):
 # %% XML writing functions
 # =============================================================================
 
-def lines_water_polygon(segment, group_index = 1, water_type=1, altitude=200, name = "Water Polygon"):
+def lines_water_polygon(segment, group_index = 1, water_type=1, altitude=0, name = "Water Polygon"):
     """
     segment : the np array with all vertices coordinates
     group_index : the number to increment
-    water_type : 0=River; 1=Water; 4=Lake
+    water_type : 0=River; 1=Waste Water; 3=Pond; 4=Lake; 5=Ocean; -1 = Water # Warning : Ocean set the altitude at 0; Lake set constant altitude
     altitude : the elevation of the water area
     name : the name of the water which will be visible on SDK
     """
@@ -335,7 +339,7 @@ def lines_water_polygon(segment, group_index = 1, water_type=1, altitude=200, na
     # then attributes :
     lines.append('\t\t<Attribute name="UniqueGUID" guid="{359C73E8-06BE-4FB2-ABCB-EC942F7761D0}" type="GUID" value="{' + str(uuid.uuid4()) + '}"/>\n')
     lines.append('\t\t<Attribute name="IsWater" guid="{684AFC09-9B38-4431-8D76-E825F54A4DFF}" type="UINT8" value="1"/>\n')
-    lines.append('\t\t<Attribute name="WaterType" guid="{3F8514F8-FAA8-4B94-AB7F-DC2078A4B888}" type="UINT32" value="' + str(water_type) + '"/>\n')
+    if water_type !=-1 : lines.append('\t\t<Attribute name="WaterType" guid="{3F8514F8-FAA8-4B94-AB7F-DC2078A4B888}" type="UINT32" value="' + str(water_type) + '"/>\n')
     if not (segment[-1] - segment[0]).any() : # the last vertex is the same as the first
         n = len(segment)-1
     else :
@@ -348,11 +352,11 @@ def lines_water_polygon(segment, group_index = 1, water_type=1, altitude=200, na
     lines.append('\t</Polygon>\n')
     return lines
 
-def lines_exclude_water_polygon(segment, group_index = 1, water_type=1, altitude=200, name = "Exclusion Polygon"):
+def lines_exclude_water_polygon(segment, group_index = 1, water_type=-1, altitude=0, name = "Exclusion Polygon"):
     """
     segment : the np array with all vertices coordinates
     group_index : the number to increment
-    water_type : 0=River; 1=Water; 4=Lake
+    water_type : 0=River; 1=Waste Water; 3=Pond; 4=Lake; 5=Ocean; -1 = Water
     altitude : the elevation of the water area
     name : the name of the water which will be visible on SDK
     """
@@ -363,7 +367,7 @@ def lines_exclude_water_polygon(segment, group_index = 1, water_type=1, altitude
     lines.append('\t\t<Attribute name="UniqueGUID" guid="{359C73E8-06BE-4FB2-ABCB-EC942F7761D0}" type="GUID" value="{' + str(uuid.uuid4()) + '}"/>\n')
     lines.append('\t\t<Attribute name="IsWater" guid="{684AFC09-9B38-4431-8D76-E825F54A4DFF}" type="UINT8" value="1"/>\n')
     lines.append('\t\t<Attribute name="IsWaterExclusion" guid="{972B7BAC-F620-4D6E-9724-E70BF8A450DD}" type="UINT8" value="1"/>\n')
-    lines.append('\t\t<Attribute name="WaterType" guid="{3F8514F8-FAA8-4B94-AB7F-DC2078A4B888}" type="UINT32" value="' + str(water_type) + '"/>\n')
+    if water_type !=-1 : lines.append('\t\t<Attribute name="WaterType" guid="{3F8514F8-FAA8-4B94-AB7F-DC2078A4B888}" type="UINT32" value="' + str(water_type) + '"/>\n')
     if not (segment[-1] - segment[0]).any() : # the last vertex is the same as the first
         n = len(segment)-1
     else :
